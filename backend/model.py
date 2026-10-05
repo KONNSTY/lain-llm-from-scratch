@@ -168,42 +168,74 @@ class SimpleLLM:
         - max_tokens: Maximale Länge der generierten Fortsetzung
         - temperature: Kreativitäts-/Entropie-Regler
         """
-        prompt_tokens = prompt.lower().split()
+        prompt_text = "".join(c for c in prompt.lower() if c.isalnum() or c.isspace())
+        prompt_tokens = prompt_text.split()
         if not prompt_tokens or max_tokens < 1:
             return "Bitte gib eine Frage oder einen Gedanken ein."
 
-        generated = list(prompt_tokens)
+        context_tokens = list(prompt_tokens)
+        response = []
+        candidates = None
 
-        # Token für Token generieren
-        for _ in range(max_tokens):
+        # Den Prompt als Kontext verwenden, aber nicht erneut in der Antwort ausgeben.
+        for order in range(min(self.max_context, len(context_tokens)), 0, -1):
+            ctx = tuple(context_tokens[-order:])
+            if ctx in self.transitions:
+                candidates = self.transitions[ctx]
+                break
+
+        if not candidates:
+            # Wenn der exakte Kontext unbekannt ist, versuche mit dem letzten
+            # Promptwort eine gelernte Fortsetzung zu finden.
+            last_word = context_tokens[-1]
+            fallback_matches = [
+                targets for (ctx, targets) in self.transitions.items()
+                if ctx[0] == last_word
+            ]
+            if fallback_matches:
+                candidates = random.choice(fallback_matches)
+            else:
+                # Für völlig unbekannte Prompts mit einer kurzen, gelernten
+                # Antwort beginnen, statt die Eingabe unverändert zurückzugeben.
+                starters = [word for word in ("i", "we", "life", "memory", "the")
+                            if (word,) in self.transitions]
+                if not starters:
+                    return "I am listening."
+                seed = random.choice(starters)
+                response.append(seed)
+                context_tokens = [seed]
+                candidates = self.transitions[(seed,)]
+
+        while len(response) < max_tokens:
+            if candidates is None:
+                candidates = None
+                # HIERARCHISCHES BACKOFF-SCANNING:
+                # Den längsten passenden Kontext aus Prompt und Antwort suchen.
+                for order in range(min(self.max_context, len(context_tokens)), 0, -1):
+                    ctx = tuple(context_tokens[-order:])
+                    if ctx in self.transitions:
+                        candidates = self.transitions[ctx]
+                        break
+
+                # Wenn der letzte Wortkontext bekannt ist, aus dessen gelernten
+                # Nachfolgern wählen.
+                if not candidates:
+                    last_word = context_tokens[-1]
+                    fallback_matches = [
+                        targets for (ctx, targets) in self.transitions.items()
+                        if ctx[0] == last_word
+                    ]
+                    if fallback_matches:
+                        candidates = random.choice(fallback_matches)
+                    else:
+                        break
+
+            next_word = self._sample_next_word(candidates, temperature=temperature)
+            response.append(next_word)
+            context_tokens.append(next_word)
             candidates = None
 
-            # HIERARCHISCHES BACKOFF-SCANNING:
-            # Wir suchen zuerst nach dem längsten Kontext (3 Wörter), dann 2, dann 1
-            for order in range(min(self.max_context, len(generated)), 0, -1):
-                ctx = tuple(generated[-order:])
-                if ctx in self.transitions:
-                    candidates = self.transitions[ctx]
-                    break  # Den längsten passenden Kontext gefunden!
-
-            # Falls überhaupt kein direkter Anschluss gefunden wurde:
-            if not candidates:
-                # Sucht nach einem beliebigen Kontext, der mit dem letzten Wort beginnt
-                last_word = generated[-1]
-                fallback_matches = [
-                    cand for (ctx, cand) in self.transitions.items()
-                    if ctx[0] == last_word
-                ]
-                if fallback_matches:
-                    candidates = random.choice(fallback_matches)
-                else:
-                    break  # Satz beenden, wenn kein semantischer Anschluss mehr existiert
-
-            # Wähle das nächste Wort mit Temperatur
-            next_word = self._sample_next_word(candidates, temperature=temperature)
-            generated.append(next_word)
-
-        return " ".join(generated)
+        return " ".join(response)
 
 
 # ==========================================
