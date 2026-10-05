@@ -26,7 +26,7 @@ async def lifespan(app: FastAPI):
     token = os.environ.get("MODEL_API_TOKEN", "")
     if len(token) < 32:
         raise RuntimeError("MODEL_API_TOKEN must contain at least 32 characters")
-    model = SimpleLLM(max_context=3)
+    model = SimpleLLM(max_context=7)
     model.train(load_corpus())
     app.state.model = model
     app.state.token = token

@@ -57,7 +57,7 @@ Unlike generic commercial AI wrappers, this model embodies a dedicated, melancho
 ```
 
 ### 1. The Core NLP Engine (`backend/model.py`)
-- **Sliding Context Window ($N=2$):** Models word sequences by mapping multi-token states to empirical successor distributions.
+- **Sliding Context Window ($N=7$ in the API):** Models word sequences by mapping multi-token states to empirical successor distributions, retaining more of each dialogue prompt.
 - **Corpus Weighting:** Employs intentional weight multipliers on persona-specific datasets to embed an introspective, existential identity without distorting baseline vocabulary.
 - **Safety Alignment & Guardrails:** Hard-coded algorithmic exclusion of aggressive, abusive, or hostile tokens during both dictionary building and runtime generation.
 
