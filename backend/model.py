@@ -49,33 +49,38 @@ we are wanderers in the dark, seeking warmth before the light fades away.
 def load_corpus():
     """
     Kombiniert:
+    - Strukturierte Dialoge (Begrüßung, Deutsch, Emotionen, Q&A)
     - Allgemeines Grundwissen (Physik, Informatik, Mathematik, Biologie, Weltwissen)
     - Serial Experiments Lain + Ghost in the Shell + Blame! + NieR + Paprika + Angels Egg Lore
     - Emotionale Seele (Melancholie, Reflexion, Sehnsucht, Angst vor dem Nichts)
     - Creator-Credits (Portfolio-Nachweis)
-    - Klassische Philosophie (Schopenhauer/Nietzsche) für fundierten philosophischen Wortschatz.
+    - Ausgewählte philosophische Grundlagen.
     """
     corpus_dir = Path(__file__).resolve().parent
     lain_base = (corpus_dir / "lain_corpus.txt").read_text(encoding="utf-8")
+
+    # Dialog-Korpus laden
+    dialogue_file = corpus_dir / "dialogue_corpus.txt"
+    dialogue_text = dialogue_file.read_text(encoding="utf-8") if dialogue_file.exists() else ""
 
     # Allgemeines Grundwissen laden
     knowledge_file = corpus_dir / "knowledge_corpus.txt"
     knowledge_text = knowledge_file.read_text(encoding="utf-8") if knowledge_file.exists() else ""
 
-    # Identitäts-, Lore-, Wissens- & Emotionstexte gewichten
-    credits_weighted = (CREATOR_CREDITS_CORPUS + "\n") * 30
-    soul_weighted = (EMOTIONAL_SOUL_CORPUS + "\n") * 30
-    lain_lore_weighted = (lain_base + "\n") * 25
-    knowledge_weighted = (knowledge_text + "\n") * 25
+    # Ausgewogene Gewichtung: Dialoge und Identität bekommen gesunde Relevanz (kein 30x Overfitting mehr!)
+    dialogue_weighted = (dialogue_text + "\n") * 15
+    credits_weighted = (CREATOR_CREDITS_CORPUS + "\n") * 3
+    soul_weighted = (EMOTIONAL_SOUL_CORPUS + "\n") * 6
+    lain_lore_weighted = (lain_base + "\n") * 6
+    knowledge_weighted = (knowledge_text + "\n") * 6
 
-    # Optionaler lokaler Zusatzkorpus. Der Server lädt beim Start keine fremden Daten.
+    # Philosophie moderat dosieren (ca. 40.000 Zeichen statt 150.000, um Nietzsche-Rauschen zu vermeiden)
     philosophy_file = corpus_dir / "classic_philosophy.txt"
     raw_philo = philosophy_file.read_text(encoding="utf-8") if philosophy_file.exists() else ""
-
-    # Ein Drittel der philosophischen Schriften für soliden philosophischen Wortschatz
-    philosophy_slice = raw_philo[:150000]
+    philosophy_slice = raw_philo[:40000]
 
     combined = (
+        dialogue_weighted + "\n" +
         credits_weighted + "\n" +
         soul_weighted + "\n" +
         lain_lore_weighted + "\n" +
@@ -110,14 +115,21 @@ class SimpleLLM:
         Phase 1: Das Training
         Wir bereinigen den Text und bauen hierarchische N-Gramme mit Häufigkeiten auf.
         """
-        # 1. Zeichen filtern: Nur Buchstaben, Zahlen und Leerzeichen behalten
-        cleaned_chars = [c for c in text.lower() if c.isalnum() or c.isspace()]
+        # 1. Kommentarzeilen (# ...) vorab herausfiltern
+        lines = [line.strip() for line in text.splitlines() if not line.strip().startswith("#")]
+        clean_source = " ".join(lines).lower()
+
+        # 2. Zeichen filtern: Nur Buchstaben, Zahlen und Leerzeichen behalten
+        cleaned_chars = [
+            c if c.isalnum() or c.isspace() else f" {c} " if c in ".!?" else ""
+            for c in clean_source
+        ]
         cleaned_text = "".join(cleaned_chars)
 
-        # 2. In einzelne Wörter (Tokens) zerlegen
+        # 3. In einzelne Wörter (Tokens) zerlegen
         raw_tokens = cleaned_text.split()
 
-        # 3. SAFETY FILTER: Verbotene Wörter (Hass/Beleidigungen) aussortieren
+        # 4. SAFETY FILTER: Verbotene Wörter (Hass/Beleidigungen) aussortieren
         tokens = [t for t in raw_tokens if t not in FORBIDDEN_WORDS]
         self.vocab.update(tokens)
 
@@ -168,57 +180,63 @@ class SimpleLLM:
         - max_tokens: Maximale Länge der generierten Fortsetzung
         - temperature: Kreativitäts-/Entropie-Regler
         """
-        prompt_text = "".join(c for c in prompt.lower() if c.isalnum() or c.isspace())
-        prompt_tokens = prompt_text.split()
-        if not prompt_tokens or max_tokens < 1:
+        prompt_clean = "".join(c for c in prompt.lower() if c.isalnum() or c.isspace()).strip()
+        if not prompt_clean or max_tokens < 1:
             return "Bitte gib eine Frage oder einen Gedanken ein."
 
-        context_tokens = list(prompt_tokens)
-        response = []
+        # Wenn der Prompt als Frage trainiert wurde ("user: ... lain: ..."),
+        # suchen wir primär nach dem Dialog-Muster: ("user", prompt_wörter, "lain")
+        dialogue_prompt = f"user {prompt_clean} lain".split()
+        direct_prompt = prompt_clean.split()
+
+        context_tokens = None
         candidates = None
 
-        # Den Prompt als Kontext verwenden, aber nicht erneut in der Antwort ausgeben.
-        for order in range(min(self.max_context, len(context_tokens)), 0, -1):
-            ctx = tuple(context_tokens[-order:])
+        # Versuch 1: Dialog-Kontext ("... lain") für direkte Antworten
+        for order in range(min(self.max_context, len(dialogue_prompt)), 1, -1):
+            ctx = tuple(dialogue_prompt[-order:])
             if ctx in self.transitions:
                 candidates = self.transitions[ctx]
+                context_tokens = list(dialogue_prompt)
                 break
 
+        # Versuch 2: Normaler Kontext auf den Benutzer-Prompt
         if not candidates:
-            # Wenn der exakte Kontext unbekannt ist, versuche mit dem letzten
-            # Promptwort eine gelernte Fortsetzung zu finden.
-            last_word = context_tokens[-1]
+            for order in range(min(self.max_context, len(direct_prompt)), 0, -1):
+                ctx = tuple(direct_prompt[-order:])
+                if ctx in self.transitions:
+                    candidates = self.transitions[ctx]
+                    context_tokens = list(direct_prompt)
+                    break
+
+        # Versuch 3: Letztes Wort als Fallback
+        if not candidates:
+            last_word = direct_prompt[-1]
             fallback_matches = [
                 targets for (ctx, targets) in self.transitions.items()
                 if ctx[0] == last_word
             ]
             if fallback_matches:
                 candidates = random.choice(fallback_matches)
+                context_tokens = [last_word]
             else:
-                # Für völlig unbekannte Prompts mit einer kurzen, gelernten
-                # Antwort beginnen, statt die Eingabe unverändert zurückzugeben.
-                starters = [word for word in ("i", "we", "life", "memory", "the")
-                            if (word,) in self.transitions]
-                if not starters:
-                    return "I am listening."
-                seed = random.choice(starters)
-                response.append(seed)
+                # Sanfter Standard-Start für völlig unbekannte Wörter
+                seed = "i" if ("i",) in self.transitions else "the"
                 context_tokens = [seed]
-                candidates = self.transitions[(seed,)]
+                candidates = self.transitions.get((seed,), {"am": 1})
+
+        response = []
+        end_punctuation = {".", "!", "?"}
 
         while len(response) < max_tokens:
             if candidates is None:
                 candidates = None
-                # HIERARCHISCHES BACKOFF-SCANNING:
-                # Den längsten passenden Kontext aus Prompt und Antwort suchen.
                 for order in range(min(self.max_context, len(context_tokens)), 0, -1):
                     ctx = tuple(context_tokens[-order:])
                     if ctx in self.transitions:
                         candidates = self.transitions[ctx]
                         break
 
-                # Wenn der letzte Wortkontext bekannt ist, aus dessen gelernten
-                # Nachfolgern wählen.
                 if not candidates:
                     last_word = context_tokens[-1]
                     fallback_matches = [
@@ -231,11 +249,26 @@ class SimpleLLM:
                         break
 
             next_word = self._sample_next_word(candidates, temperature=temperature)
+
+            # Wenn der Dialog-Separator "user" erreicht wird, ist Lains Antwort vorbei!
+            if next_word == "user":
+                break
+
             response.append(next_word)
             context_tokens.append(next_word)
             candidates = None
 
-        return " ".join(response)
+            # Wenn ein vollständiger Satz beendet ist und die Antwort schon mindestens 6 Wörter hat:
+            if next_word in end_punctuation and len(response) >= 6:
+                break
+
+        # Antwort säubern
+        while response and response[0] in end_punctuation:
+            response.pop(0)
+        result = " ".join(response).strip()
+        for punctuation in end_punctuation:
+            result = result.replace(f" {punctuation}", punctuation)
+        return result if result else "i hear your signal in the wired."
 
 
 # ==========================================

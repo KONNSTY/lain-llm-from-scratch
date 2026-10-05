@@ -79,6 +79,8 @@ Unlike generic commercial AI wrappers, this model embodies a dedicated, melancho
 ├── backend/              # VPS-only Python service and corpus
 │   ├── model.py          # N-gram model
 │   ├── server.py         # Private FastAPI model service
+│   ├── dialogue_corpus.txt # Structured English and German chat examples
+│   ├── knowledge_corpus.txt # General knowledge training text
 │   ├── lain_corpus.txt   # Persona narrative training dataset
 │   └── requirements.txt # Python dependencies
 ├── api/                  # Vercel Functions that proxy to the VPS
