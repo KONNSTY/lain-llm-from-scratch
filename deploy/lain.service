@@ -1,0 +1,26 @@
+[Unit]
+Description=Lain model API
+After=network.target
+
+[Service]
+Type=simple
+User=lain
+Group=lain
+WorkingDirectory=/opt/lain
+EnvironmentFile=/etc/lain/model.env
+ExecStart=/opt/lain/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8080 --workers 1 --no-proxy-headers
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

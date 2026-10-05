@@ -1,0 +1,20 @@
+# Replace api.example.com with a DNS name pointing to this VPS.
+api.example.com {
+    request_body {
+        max_size 8KB
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    }
+
+    @model_api path /api/generate /health
+    handle @model_api {
+        reverse_proxy 127.0.0.1:8080
+    }
+    handle {
+        respond "Not found" 404
+    }
+}

@@ -1,0 +1,54 @@
+# ==========================================
+# SICHERHEIT: API-Keys, Credentials & Secrets
+# ==========================================
+.env
+.env.*
+!.env.example
+*.env
+*.key
+*.pem
+*.cert
+credentials.json
+secrets.json
+config.json
+
+# ==========================================
+# Python & Bytecode
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+
+# ==========================================
+# Virtuelle Umgebungen
+# ==========================================
+venv/
+env/
+.venv/
+.vercel/
+
+# ==========================================
+# macOS System-Dateien & IDEs
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+.vscode/
+.idea/
+
+# ==========================================
+# Große temporäre Textdateien & Logs
+# ==========================================
+*.log
+scratch/
+philosophical_corpus.txt
+classic_philosophy.txt
+grimms_maerchen.txt
+print("Hello World").py

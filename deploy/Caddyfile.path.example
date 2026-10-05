@@ -1,0 +1,8 @@
+# Add inside an existing HTTPS site block before its catch-all reverse_proxy.
+# The model container must share a Docker network with Caddy and publish no host port.
+handle_path /lain/* {
+    request_body {
+        max_size 8KB
+    }
+    reverse_proxy lain-model:8080
+}
