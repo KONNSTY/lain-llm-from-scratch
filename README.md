@@ -111,7 +111,7 @@ The browser calls same-origin `/api/generate` and `/api/health` on Vercel. The V
    .venv/bin/pip install -r requirements.txt
    ```
 
-4. Generate a random token (for example with `openssl rand -hex 32`). Store `MODEL_API_TOKEN=<value>` in `/etc/lain/model.env` with owner `root:root` and mode `0600`. Keep this file off Git.
+4. Generate a random token with `openssl rand -hex 32`. It must be 32 to 256 visible ASCII characters and must not contain spaces. Store `MODEL_API_TOKEN=<value>` in `/etc/lain/model.env` with owner `root:root` and mode `0600`. Keep this file off Git. The Vercel functions call `MODEL_API_URL` directly and do not follow redirects.
 5. For a host-level installation, install [deploy/lain.service](deploy/lain.service) as `/etc/systemd/system/lain.service`, then run `systemctl daemon-reload && systemctl enable --now lain`. The service must become healthy on `http://127.0.0.1:8080/health`. Place [deploy/Caddyfile.example](deploy/Caddyfile.example) in the host Caddy configuration.
 6. If Caddy already runs in Docker, build [backend/Dockerfile](backend/Dockerfile) and run the model container on Caddy's private Docker network with `--env-file /etc/lain/model.env`, `--read-only`, `--cap-drop ALL`, and **no published host port**. Add [deploy/Caddyfile.path.example](deploy/Caddyfile.path.example) within the existing HTTPS site and set `MODEL_API_URL` to that site's origin plus `/lain`.
 7. Validate and reload Caddy. Confirm the public HTTPS health path works, while generation without the bearer token receives HTTP 401.

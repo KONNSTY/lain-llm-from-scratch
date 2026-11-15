@@ -8,7 +8,8 @@ User=lain
 Group=lain
 WorkingDirectory=/opt/lain
 EnvironmentFile=/etc/lain/model.env
-ExecStart=/opt/lain/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8080 --workers 1 --no-proxy-headers
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/lain/.venv/bin/uvicorn server:app --host 127.0.0.1 --port 8080 --workers 1 --no-proxy-headers --no-server-header
 Restart=on-failure
 RestartSec=5
 UMask=0077

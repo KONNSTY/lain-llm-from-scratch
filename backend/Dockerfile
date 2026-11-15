@@ -9,11 +9,12 @@ RUN pip install --no-cache-dir -r requirements.txt \
     && groupadd --system lain \
     && useradd --system --gid lain --home-dir /app --no-create-home lain
 
-COPY --chown=lain:lain model.py server.py *.txt ./
+# Copy only the service files. Do not add an unreviewed text file to this image.
+COPY --chown=lain:lain model.py server.py dialogue_corpus.txt knowledge_corpus.txt lain_corpus.txt ./
 USER lain
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=2)" || exit 1
 
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1", "--no-proxy-headers"]
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080", "--workers", "1", "--no-proxy-headers", "--no-server-header"]

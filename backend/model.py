@@ -7,11 +7,14 @@ from pathlib import Path
 
 # Strikte Safety Guardrails: Verbot von Hass, Beleidigungen, Brutalität & Aggression.
 # Erlaubt sind rein reflexive / melancholische Gefühle (Sorrow, Melancholy, Despair, Longing, Solitude).
+# Training filter only. "die" is intentionally absent: it is the German article,
+# and removing it dropped words from the bilingual dialogue corpus.
 FORBIDDEN_WORDS = {
-    "hate", "angry", "rage", "furious", "kill", "die", "stupid", "idiot",
+    "hate", "angry", "rage", "furious", "kill", "stupid", "idiot",
     "ugly", "evil", "curse", "wrath", "destroy", "hostile", "violent", "scum",
     "bastard", "bitch", "loser", "trash", "murder", "asshole", "fuck", "shit"
 }
+MAX_CORPUS_CHARS = 500_000
 
 # Creator & Portfolio Credits (Für Recruiter und Projektherkunft)
 CREATOR_CREDITS_CORPUS = """
@@ -46,6 +49,20 @@ we are wanderers in the dark, seeking warmth before the light fades away.
 """
 
 
+def _read_corpus(path: Path, limit: int, required: bool, truncate: bool = False) -> str:
+    if not path.is_file():
+        if required:
+            raise FileNotFoundError(path.name)
+        return ""
+    with path.open(encoding="utf-8") as handle:
+        data = handle.read(limit + 1)
+    if len(data) > limit:
+        if not truncate:
+            raise RuntimeError(f"Corpus exceeds {limit} characters: {path.name}")
+        data = data[:limit]
+    return data
+
+
 def load_corpus():
     """
     Kombiniert:
@@ -57,15 +74,9 @@ def load_corpus():
     - Ausgewählte philosophische Grundlagen.
     """
     corpus_dir = Path(__file__).resolve().parent
-    lain_base = (corpus_dir / "lain_corpus.txt").read_text(encoding="utf-8")
-
-    # Dialog-Korpus laden
-    dialogue_file = corpus_dir / "dialogue_corpus.txt"
-    dialogue_text = dialogue_file.read_text(encoding="utf-8") if dialogue_file.exists() else ""
-
-    # Allgemeines Grundwissen laden
-    knowledge_file = corpus_dir / "knowledge_corpus.txt"
-    knowledge_text = knowledge_file.read_text(encoding="utf-8") if knowledge_file.exists() else ""
+    lain_base = _read_corpus(corpus_dir / "lain_corpus.txt", MAX_CORPUS_CHARS, required=True)
+    dialogue_text = _read_corpus(corpus_dir / "dialogue_corpus.txt", MAX_CORPUS_CHARS, required=False)
+    knowledge_text = _read_corpus(corpus_dir / "knowledge_corpus.txt", MAX_CORPUS_CHARS, required=False)
 
     # Ausgewogene Gewichtung: Dialoge und Identität bekommen gesunde Relevanz (kein 30x Overfitting mehr!)
     dialogue_weighted = (dialogue_text + "\n") * 15
@@ -75,9 +86,9 @@ def load_corpus():
     knowledge_weighted = (knowledge_text + "\n") * 6
 
     # Philosophie moderat dosieren (ca. 40.000 Zeichen statt 150.000, um Nietzsche-Rauschen zu vermeiden)
-    philosophy_file = corpus_dir / "classic_philosophy.txt"
-    raw_philo = philosophy_file.read_text(encoding="utf-8") if philosophy_file.exists() else ""
-    philosophy_slice = raw_philo[:40000]
+    philosophy_slice = _read_corpus(
+        corpus_dir / "classic_philosophy.txt", 40_000, required=False, truncate=True
+    )
 
     combined = (
         dialogue_weighted + "\n" +
@@ -155,6 +166,14 @@ class SimpleLLM:
 
 
 
+    def _candidates_for(self, tokens, min_order=1):
+        upper = min(self.max_context, len(tokens))
+        for order in range(upper, min_order - 1, -1):
+            found = self.transitions.get(tuple(tokens[-order:]))
+            if found:
+                return found
+        return None
+
     def _sample_next_word(self, candidates_dict, temperature=0.7):
         """
         Wählt das nächste Wort basierend auf Häufigkeit und Temperatur aus.
@@ -162,16 +181,20 @@ class SimpleLLM:
         - temperature ~ 0.7 - 0.9: Ausgewogen, nachdenklich, lebendig.
         - temperature > 1.0: Sehr assoziativ und kreativ.
         """
-        words = list(candidates_dict.keys())
-        counts = list(candidates_dict.values())
+        allowed = {
+            word: count for word, count in candidates_dict.items() if word not in FORBIDDEN_WORDS
+        }
+        if not allowed:
+            return None
+        words = list(allowed.keys())
+        counts = list(allowed.values())
 
         # Temperatur anwenden: counts ** (1.0 / temperature)
         temp = max(0.1, float(temperature))
         weights = [c ** (1.0 / temp) for c in counts]
 
         # random.choices wählt nach den berechneten Wahrscheinlichkeitsgewichten
-        chosen_word = random.choices(words, weights=weights, k=1)[0]
-        return chosen_word
+        return random.choices(words, weights=weights, k=1)[0]
 
     def generate(self, prompt, max_tokens=25, temperature=0.7):
         """
@@ -189,38 +212,15 @@ class SimpleLLM:
         dialogue_prompt = f"user {prompt_clean} lain".split()
         direct_prompt = prompt_clean.split()
 
-        context_tokens = None
-        candidates = None
-
-        # Versuch 1: Dialog-Kontext ("... lain") für direkte Antworten
-        for order in range(min(self.max_context, len(dialogue_prompt)), 1, -1):
-            ctx = tuple(dialogue_prompt[-order:])
-            if ctx in self.transitions:
-                candidates = self.transitions[ctx]
-                context_tokens = list(dialogue_prompt)
-                break
-
-        # Versuch 2: Normaler Kontext auf den Benutzer-Prompt
-        if not candidates:
-            for order in range(min(self.max_context, len(direct_prompt)), 0, -1):
-                ctx = tuple(direct_prompt[-order:])
-                if ctx in self.transitions:
-                    candidates = self.transitions[ctx]
-                    context_tokens = list(direct_prompt)
-                    break
-
-        # Versuch 3: Letztes Wort als Fallback
-        if not candidates:
-            last_word = direct_prompt[-1]
-            fallback_matches = [
-                targets for (ctx, targets) in self.transitions.items()
-                if ctx[0] == last_word
-            ]
-            if fallback_matches:
-                candidates = random.choice(fallback_matches)
-                context_tokens = [last_word]
+        # Dialog-Kontext needs at least two tokens so a bare "lain" does not ignore the prompt.
+        candidates = self._candidates_for(dialogue_prompt, min_order=2)
+        if candidates:
+            context_tokens = list(dialogue_prompt)
+        else:
+            candidates = self._candidates_for(direct_prompt, min_order=1)
+            if candidates:
+                context_tokens = list(direct_prompt)
             else:
-                # Sanfter Standard-Start für völlig unbekannte Wörter
                 seed = "i" if ("i",) in self.transitions else "the"
                 context_tokens = [seed]
                 candidates = self.transitions.get((seed,), {"am": 1})
@@ -230,25 +230,13 @@ class SimpleLLM:
 
         while len(response) < max_tokens:
             if candidates is None:
-                candidates = None
-                for order in range(min(self.max_context, len(context_tokens)), 0, -1):
-                    ctx = tuple(context_tokens[-order:])
-                    if ctx in self.transitions:
-                        candidates = self.transitions[ctx]
-                        break
-
+                candidates = self._candidates_for(context_tokens, min_order=1)
                 if not candidates:
-                    last_word = context_tokens[-1]
-                    fallback_matches = [
-                        targets for (ctx, targets) in self.transitions.items()
-                        if ctx[0] == last_word
-                    ]
-                    if fallback_matches:
-                        candidates = random.choice(fallback_matches)
-                    else:
-                        break
+                    break
 
             next_word = self._sample_next_word(candidates, temperature=temperature)
+            if next_word is None:
+                break
 
             # Wenn der Dialog-Separator "user" erreicht wird, ist Lains Antwort vorbei!
             if next_word == "user":

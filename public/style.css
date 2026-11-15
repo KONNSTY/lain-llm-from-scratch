@@ -55,6 +55,8 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
   background: rgba(255, 255, 255, 0.02);
 }
 
@@ -112,6 +114,7 @@ body {
   border-radius: 999px;
   font-size: 0.75rem;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 /* Messages Area */
@@ -192,6 +195,7 @@ body {
 
 .input-form input {
   flex: 1;
+  min-width: 0;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-color);
   padding: 12px 18px;
@@ -209,6 +213,7 @@ body {
 }
 
 .input-form button {
+  flex-shrink: 0;
   background: var(--accent-gradient);
   color: white;
   border: none;
@@ -230,4 +235,14 @@ body {
 
 .input-form button:active {
   transform: scale(0.98);
+}
+
+.input-form button:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: 2px;
+}
+
+.input-form button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
