@@ -13,9 +13,10 @@ module.exports = async function handler(request, response) {
       signal: AbortSignal.timeout(5000),
       cache: "no-store",
     });
-    if (!result.ok) throw new Error("Unhealthy");
+    if (!result.ok) throw new Error(`Upstream health returned HTTP ${result.status}`);
     return response.status(200).json({ status: "ok" });
-  } catch {
+  } catch (error) {
+    console.error("Model health check failed:", error.message, error.cause?.code || "");
     return response.status(503).json({ status: "unavailable" });
   }
 };
