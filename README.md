@@ -122,6 +122,19 @@ Deploy the repository root with the **Other** framework preset. `vercel.json` se
 
 The public chat endpoint can be called by anyone who can access the site. The server has one-worker request and concurrency limits, but public rate limiting at scale should be configured in Vercel Firewall or another shared gateway. No finite code change can guarantee that all security vulnerabilities are eliminated.
 
+### Troubleshooting an offline chat
+
+The production Vercel project uses `MODEL_API_URL=https://api.reglerproductions.com/lain`. An HTTP 404 from `/api/health`'s upstream means the public HTTPS host is reachable but its `/lain/*` reverse-proxy route is missing or points to the wrong service. Check both the local model and the public route on the VPS:
+
+```bash
+systemctl status lain --no-pager
+journalctl -u lain -n 80 --no-pager
+curl -i http://127.0.0.1:8080/health
+curl -i https://api.reglerproductions.com/lain/health
+```
+
+If the model runs in Docker, inspect `docker ps` and `docker logs lain-model --tail 80` instead of the systemd commands. Add [deploy/Caddyfile.path.example](deploy/Caddyfile.path.example) inside the existing HTTPS site block and ensure Caddy and `lain-model` share a Docker network; or use [deploy/Caddyfile.example](deploy/Caddyfile.example) for a host-level systemd service. Validate and reload the active Caddy instance, then check the two health URLs again. Do not change Vercel's `MODEL_API_URL` until the public upstream health route returns 200.
+
 ### Optional LoRA fine-tuning
 
 Run this explicitly from `backend/` on a machine with enough memory/storage. It downloads the MIT-licensed `HuggingFaceH4/ultrachat_200k` SFT split and saves only a LoRA adapter; the default is 5,000 general dialogue examples plus repeated original persona examples. Reduce `--max-examples` for a quick smoke run. Training speed depends heavily on GPU/MPS support and is not guaranteed to be practical on CPU.
