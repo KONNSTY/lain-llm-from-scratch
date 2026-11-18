@@ -1,4 +1,4 @@
-const MAX_BODY_BYTES = 4096;
+const MAX_BODY_BYTES = 65536;
 
 module.exports = async function handler(request, response) {
   response.setHeader("Cache-Control", "no-store");
@@ -17,9 +17,13 @@ module.exports = async function handler(request, response) {
 
   const body = request.body;
   if (!body || typeof body !== "object" || Array.isArray(body) ||
-      Object.keys(body).some((key) => !["prompt", "max_tokens"].includes(key)) ||
-      typeof body.prompt !== "string" || !body.prompt.trim() || body.prompt.length > 1000 ||
-      (body.max_tokens !== undefined && (!Number.isInteger(body.max_tokens) || body.max_tokens < 1 || body.max_tokens > 60)) ||
+      Object.keys(body).some((key) => !["prompt", "messages", "max_tokens"].includes(key)) ||
+      typeof body.prompt !== "string" || !body.prompt.trim() || body.prompt.length > 12000 ||
+      (body.messages !== undefined && (!Array.isArray(body.messages) || body.messages.length > 20 ||
+        body.messages.some((message) => !message || typeof message !== "object" ||
+          !["user", "assistant"].includes(message.role) || typeof message.content !== "string" ||
+          message.content.length > 12000))) ||
+      (body.max_tokens !== undefined && (!Number.isInteger(body.max_tokens) || body.max_tokens < 1 || body.max_tokens > 512)) ||
       Buffer.byteLength(JSON.stringify(body), "utf8") > MAX_BODY_BYTES) {
     return response.status(400).json({ error: "Invalid request" });
   }
@@ -45,8 +49,8 @@ module.exports = async function handler(request, response) {
         "Authorization": `Bearer ${process.env.MODEL_API_TOKEN}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ prompt: body.prompt.trim(), max_tokens: body.max_tokens ?? 15 }),
-      signal: AbortSignal.timeout(15000),
+      body: JSON.stringify({ prompt: body.prompt.trim(), messages: body.messages ?? [], max_tokens: body.max_tokens ?? 256 }),
+      signal: AbortSignal.timeout(60000),
       cache: "no-store",
     });
     if (result.status === 429 || result.status === 503) {

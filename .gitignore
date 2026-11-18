@@ -47,6 +47,7 @@ env/
 # Große temporäre Textdateien & Logs
 # ==========================================
 *.log
+backend/artifacts/
 scratch/
 philosophical_corpus.txt
 classic_philosophy.txt

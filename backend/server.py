@@ -12,7 +12,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from model import SimpleLLM, load_corpus
+from model import LainChatModel
 
 RATE_LIMIT = 120
 RATE_WINDOW_SECONDS = 60
@@ -26,8 +26,7 @@ async def lifespan(app: FastAPI):
     token = os.environ.get("MODEL_API_TOKEN", "")
     if len(token) < 32:
         raise RuntimeError("MODEL_API_TOKEN must contain at least 32 characters")
-    model = SimpleLLM(max_context=7)
-    model.train(load_corpus())
+    model = LainChatModel()
     app.state.model = model
     app.state.token = token
     yield
@@ -45,8 +44,9 @@ app = FastAPI(
 class GenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    prompt: str = Field(min_length=1, max_length=1000)
-    max_tokens: int = Field(default=25, ge=1, le=100, strict=True)
+    prompt: str = Field(min_length=1, max_length=12000)
+    messages: list[dict[str, str]] = Field(default_factory=list, max_length=20)
+    max_tokens: int = Field(default=256, ge=1, le=512, strict=True)
     temperature: float = Field(default=0.7, ge=0.1, le=2.0)
 
     @field_validator("prompt")
@@ -55,6 +55,16 @@ class GenerateRequest(BaseModel):
         value = value.strip()
         if not value:
             raise ValueError("prompt must not be blank")
+        return value
+
+    @field_validator("messages")
+    @classmethod
+    def validate_messages(cls, value: list[dict[str, str]]) -> list[dict[str, str]]:
+        if sum(len(item.get("content", "")) for item in value) > 48000:
+            raise ValueError("conversation history is too large")
+        if any(set(item) != {"role", "content"} or item["role"] not in {"user", "assistant"}
+               or len(item["content"]) > 12000 for item in value):
+            raise ValueError("invalid conversation message")
         return value
 
 
@@ -86,7 +96,8 @@ def generate_text_endpoint(payload: GenerateRequest):
             "completion": app.state.model.generate(
                 payload.prompt,
                 max_tokens=payload.max_tokens,
-                temperature=payload.temperature
+                temperature=payload.temperature,
+                messages=payload.messages,
             )
         }
     finally:

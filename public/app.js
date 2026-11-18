@@ -7,6 +7,7 @@ const userInput = document.getElementById("user-input");
 const sendButton = document.getElementById("send-btn");
 const chatMessages = document.getElementById("chat-messages");
 const statusBadge = document.getElementById("status-badge");
+const conversation = [];
 
 async function checkBackendHealth() {
   try {
@@ -56,6 +57,7 @@ chatForm.addEventListener("submit", async (event) => {
   sendButton.disabled = true;
 
   addMessage(promptText, "user");
+  conversation.push({ role: "user", content: promptText });
 
   const thinkingBubble = addMessage("Transmitting through the Wired...", "bot");
 
@@ -63,7 +65,7 @@ chatForm.addEventListener("submit", async (event) => {
     const response = await fetch(API_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: promptText, max_tokens: 15 })
+      body: JSON.stringify({ prompt: promptText, messages: conversation.slice(-12), max_tokens: 256 })
     });
 
     if (!response.ok) {
@@ -73,6 +75,7 @@ chatForm.addEventListener("submit", async (event) => {
     const data = await response.json();
     if (typeof data.completion !== "string") throw new Error("Invalid response");
     thinkingBubble.textContent = data.completion;
+    conversation.push({ role: "assistant", content: data.completion });
 
   } catch {
     thinkingBubble.textContent = "Die Verbindung zum Modell ist gerade nicht verfügbar. Bitte versuche es erneut.";
